@@ -168,6 +168,28 @@ describe 'file_selection', ->
           items = get_ui_list_widget_column!
         assert.same { 'x.b', 'x.c', 'x.a' }, items
 
+    context 'in subtree mode', ->
+      it 'shows files and directories in the subtree', ->
+        files = { 'ab1', 'ab2/', 'ab2/xy', 'ef/', 'ef/gh/', 'ef/gh/ab4'}
+        for name in *files
+          f = tmpdir / name
+          if name\ends_with '/'
+            f\mkdir!
+          else
+            f.contents = 'a'
+
+        local items, items2
+        within_activity (-> interact.select_file(show_subtree: true)), ->
+          command_line\write tostring(tmpdir) .. '/'
+          items = get_ui_list_widget_column(1)
+
+          command_line\write 'ab'
+          items2 = get_ui_list_widget_column(1)
+
+        assert.same files, items
+        assert.same {'ab1', 'ab2/', 'ab2/xy', 'ef/gh/ab4'}, items2
+
+
   describe 'interact.select_directory', ->
     it 'shows only sub directories including "./", but no files', ->
       files = { 'ab1', 'ab2', 'bc1' }

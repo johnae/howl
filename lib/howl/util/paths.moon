@@ -75,23 +75,25 @@ file_matcher = (files, directory, allow_new=false) ->
   children = {}
   hidden_by_config = {}
 
-  for c in *files
-    is_directory = c.is_directory
-    name = display_name(c, is_directory, directory)
+  for file in *files
+    is_directory = file.is_directory
+    name = display_name(file, is_directory, directory)
 
-    if should_hide c
-      hidden_by_config[c.basename] = {
+    if should_hide file
+      hidden_by_config[file.basename] = {
         markup.howl("<comment>#{name}</>"),
         markup.howl("<comment>[hidden]</>"),
+        :file
         :name
         :is_directory,
       }
     else
       append children, {
         is_directory and markup.howl("<directory>#{name}</>") or name
+        :file
         :name
         :is_directory,
-        is_hidden: c.is_hidden
+        is_hidden: file.is_hidden
       }
 
   table.sort children, (f1, f2) ->
@@ -124,23 +126,26 @@ file_matcher = (files, directory, allow_new=false) ->
     append matches, {
       text,
       markup.howl '<keyword>[New]</>'
+      file: directory / text
       name: text
       is_new: true
     }
 
     return matches
 
-subtree_matcher = (root, files=nil) ->
-  unless files
-    files = root\find sort: true
-
+subtree_matcher = (files, directory, opts={}) ->
   paths = {}
 
   for file in *files
+    continue if should_hide file
     is_directory = file.is_directory
-    if is_directory continue
-    append paths, {display_name(file, is_directory, root), :file}
+    continue if opts.exclude_directories and is_directory
+    name = display_name(file, is_directory, directory)
+    append paths, {is_directory and markup.howl("<directory>#{name}</>") or name, :file, :name}
 
-  return Matcher paths, reverse: true
+  return Matcher paths
 
-return { :file_matcher, :get_cwd, :get_dir_and_leftover, :subtree_matcher }
+subtree_reader = (directory, opts={}) ->
+  directory\find sort: true, filter: (file) -> should_hide(file) or opts.filter and opts.filter(file)
+
+return { :file_matcher, :get_cwd, :get_dir_and_leftover, :subtree_matcher, :subtree_reader }

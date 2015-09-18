@@ -7,7 +7,7 @@ import app, clipboard, config, interact, log, Project from howl
 import File from howl.io
 import preview from howl.interactions.util
 import markup, style, ListWidget from howl.ui
-import file_matcher, subtree_matcher, get_dir_and_leftover from howl.util.paths
+import file_matcher, subtree_matcher, subtree_reader, get_dir_and_leftover from howl.util.paths
 
 append = table.insert
 separator = File.separator
@@ -15,12 +15,8 @@ separator = File.separator
 style.define_default 'directory', 'key'
 style.define_default 'filename', 'string'
 
-subdirs = (directory) ->
-  files = [c for c in *directory.children when c.is_directory]
-  append files, directory\join '.'
-  files
-
-project_matcher = (project) -> subtree_matcher(project.root, project\files!)
+project_matcher = (project) ->
+  subtree_matcher(project\files!, project.root, exclude_directories: true)
 
 get_project = ->
   if app.editor
@@ -31,9 +27,10 @@ get_project = ->
 class FileSelector
   run: (@finish, @opts={}) =>
     @directory_reader = @opts.directory_reader or (d) -> d.children
+    @subtree_reader = @opts.subtree_reader or subtree_reader
+    @show_subtree = @opts.show_subtree
     @command_line = app.window.command_line
     @command_line.prompt = @opts.prompt or ''
-    @command_line.title = @opts.title or 'File'
 
     @list_widget = ListWidget nil,
       never_shrink: true,
@@ -61,7 +58,13 @@ class FileSelector
 
   _chdir: (directory, text) =>
     @directory = directory
-    matcher = file_matcher self.directory_reader(directory), directory, @opts.allow_new
+    local matcher
+    if @show_subtree
+      matcher = subtree_matcher self.subtree_reader(directory), directory
+      @command_line.title = (@opts.title or 'File') .. ' (subtree)'
+    else
+      matcher = file_matcher self.directory_reader(directory), directory, @opts.allow_new
+      @command_line.title = @opts.title or 'File'
 
     @list_widget.matcher = matcher
     @list_widget\update text
@@ -74,7 +77,7 @@ class FileSelector
   _preview: (selection) =>
     return unless config.preview_files
 
-    file = @directory / selection.name
+    file = selection.file
     if file.exists
       app.editor\preview preview.get_preview_buffer file
     else
@@ -92,22 +95,21 @@ class FileSelector
   keymap:
     enter: =>
       app.editor\cancel_preview!
+      file = @list_widget.selection and @list_widget.selection.file
       name = @list_widget.selection and @list_widget.selection.name
-      if not @allow_new and not name
-        log.error 'Invalid path'
+      if not @opts.allow_new and (not file or not file.exists)
+        log.error 'Invalid path: '..tostring(file)
         return
 
       if name == ".#{separator}"
         self.finish @directory
         return
 
-      path = @directory\join name
-
-      if path.exists and path.is_directory
-        @_chdir path
+      if file.exists and file.is_directory
+        @_chdir file
       else
         @command_line.text = name
-        self.finish path
+        self.finish file
 
     backspace: =>
       return false unless @command_line.text.is_empty
@@ -116,6 +118,10 @@ class FileSelector
     escape: =>
       app.editor\cancel_preview!
       self.finish!
+
+    ctrl_s: =>
+      @show_subtree = not @show_subtree
+      @_chdir @directory
 
 interact.register
   name: 'select_file'
@@ -128,7 +134,16 @@ interact.register
   handler: (opts={}) ->
     opts = moon.copy opts
     with opts
-      .directory_reader = subdirs
+      .directory_reader = (directory) ->
+        dirs = [child for child in *directory.children when child.is_directory]
+        append dirs, 1, directory
+        return dirs
+
+      .subtree_reader = (directory) ->
+        dirs = subtree_reader directory, filter: (file) -> not file.is_directory
+        append dirs, 1, directory
+        return dirs
+
       .title or= 'Directory'
 
     interact.select_file opts
